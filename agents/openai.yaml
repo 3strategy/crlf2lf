@@ -1,0 +1,4 @@
+interface:
+  display_name: "CRLF to LF"
+  short_description: "Normalize project text files to LF endings"
+  default_prompt: "Use $crlf2lf to normalize this project to LF line endings."
