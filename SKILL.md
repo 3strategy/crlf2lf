@@ -8,9 +8,9 @@ description: Normalize CRLF or mixed text-file line endings to LF across a proje
 Convert the requested project in one pass:
 
 ```text
-python <skill-directory>/scripts/crlf2lf.py <project-root> --git-tracked --write
+python <skill-directory>/scripts/crlf2lf.py <project-root>
 ```
 
-Use `--git-tracked` for tracked working-tree files, including metadata such as `.idea`. Omit it outside Git or when the requested scope includes untracked files; directory traversal skips common generated and dependency folders. A single file path is also supported without `--git-tracked`.
+By default, the helper applies conversions immediately. For a directory inside a Git worktree it processes tracked files plus untracked files that are not ignored, including tracked metadata such as `.idea`. Outside Git it traverses the directory while skipping common generated and dependency folders. A single file path is also supported.
 
-The helper converts CRLF and stray CR to LF, preserves other bytes, and skips symlinks and likely binaries. Report its conversion count and any errors. Routine conversion needs no separate preview, rescan, or project build. For a requested audit use `--check` instead of `--write` (exit 1 means conversion needed); omit both for a preview.
+The helper converts CRLF and stray CR to LF, preserves other bytes, and skips symlinks and likely binaries. Report its conversion count and any errors. Routine conversion needs no separate preview, rescan, or project build. For a requested audit use `--check` (exit 1 means conversion needed); use `--preview` to list needed conversions without changing files or returning a failing status. `--git-files` and `--all-files` override automatic scope selection, while `--write` remains available as an explicit form of the default behavior. The legacy `--git-tracked` spelling remains a compatibility alias for `--git-files`.

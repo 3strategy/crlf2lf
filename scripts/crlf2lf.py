@@ -51,22 +51,47 @@ def files_under(root: Path):
                 yield path
 
 
-def git_tracked_files(root: Path):
-    result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z"],
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def git_project_files(root: Path):
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"unable to run Git: {exc}") from exc
     if result.returncode:
         error = result.stderr.decode(errors="replace").strip()
-        raise RuntimeError(error or "unable to list Git-tracked files")
+        raise RuntimeError(error or "unable to list Git project files")
     for raw_path in result.stdout.split(b"\x00"):
         if not raw_path:
             continue
         path = root / os.fsdecode(raw_path)
         if path.is_file() and not path.is_symlink():
             yield path
+
+
+def is_git_work_tree(root: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and result.stdout.strip() == b"true"
 
 
 def normalized(data: bytes) -> bytes:
@@ -78,14 +103,44 @@ def main() -> int:
         description="Preview or convert CRLF and stray CR line endings to LF."
     )
     parser.add_argument("path", nargs="?", default=".", help="File or project root")
-    parser.add_argument(
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument(
+        "--git-files",
         "--git-tracked",
-        action="store_true",
-        help="Process every tracked file, including tracked metadata directories",
+        dest="scope",
+        action="store_const",
+        const="git",
+        help=(
+            "Process tracked and untracked non-ignored Git files, including tracked "
+            "metadata directories (--git-tracked is a compatibility alias)"
+        ),
+    )
+    scope.add_argument(
+        "--all-files",
+        dest="scope",
+        action="store_const",
+        const="all",
+        help="Traverse all files except generated and dependency directories",
     )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--write", action="store_true", help="Apply conversions")
-    mode.add_argument("--check", action="store_true", help="Exit 1 if conversion is needed")
+    mode.add_argument(
+        "--write", dest="mode", action="store_const", const="write", help="Apply conversions"
+    )
+    mode.add_argument(
+        "--check",
+        dest="mode",
+        action="store_const",
+        const="check",
+        help="Exit 1 if conversion is needed without changing files",
+    )
+    mode.add_argument(
+        "--preview",
+        dest="mode",
+        action="store_const",
+        const="preview",
+        help="List needed conversions without changing files or failing",
+    )
+    parser.set_defaults(scope="auto", mode="write")
     args = parser.parse_args()
 
     root = Path(args.path).expanduser().absolute()
@@ -95,10 +150,19 @@ def main() -> int:
         parser.error(f"path is a symlink: {root}")
 
     changed = skipped_binary = errors = 0
-    label = "converted" if args.write else "needs conversion" if args.check else "would convert"
+    label = (
+        "converted"
+        if args.mode == "write"
+        else "needs conversion"
+        if args.mode == "check"
+        else "would convert"
+    )
     is_directory = root.is_dir()
     try:
-        paths = git_tracked_files(root) if args.git_tracked else files_under(root)
+        use_git = is_directory and (
+            args.scope == "git" or (args.scope == "auto" and is_git_work_tree(root))
+        )
+        paths = git_project_files(root) if use_git else files_under(root)
         for path in paths:
             try:
                 data = path.read_bytes()
@@ -107,7 +171,7 @@ def main() -> int:
                     continue
                 if b"\r" not in data:
                     continue
-                if args.write:
+                if args.mode == "write":
                     path.write_bytes(normalized(data))
             except OSError as exc:
                 errors += 1
@@ -124,7 +188,7 @@ def main() -> int:
         f"skipped {skipped_binary} likely binary file(s); "
         f"errors {errors}."
     )
-    return 2 if errors else int(args.check and changed > 0)
+    return 2 if errors else int(args.mode == "check" and changed > 0)
 
 
 if __name__ == "__main__":
