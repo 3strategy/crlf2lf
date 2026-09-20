@@ -28,14 +28,39 @@ SKIP_DIRS = {
 }
 
 
-def likely_binary(data: bytes) -> bool:
-    if not data:
-        return False
-    if b"\x00" in data:
+# Some binary formats contain mostly printable ASCII, so a low control-byte
+# count cannot establish that rewriting their newlines is safe.
+BINARY_SUFFIXES = frozenset("""
+    .pdf .bcmap .png .jpg .jpeg .gif .webp .ico .bmp .tif .tiff .avif
+    .mp3 .mp4 .m4a .m4v .mov .avi .wav .ogg .flac .webm .flv .swf
+    .zip .gz .bz2 .xz .7z .rar .tar .jar .war .apk .aab .nupkg
+    .doc .docx .xls .xlsx .ppt .pptx .odt .ods .odp
+    .ttf .otf .woff .woff2 .eot .exe .dll .so .dylib .o .a .lib
+    .class .pyc .pyo .wasm .bin .dat .data .db .sqlite .sqlite3
+    .psd .ai .eps .t3x .t3d
+""".split())
+
+BINARY_SIGNATURES = (
+    b"%PDF-", b"%!PS", b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff",
+    b"GIF87a", b"GIF89a", b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08",
+    b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c",
+    b"Rar!", b"\x7fELF", b"MZ", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
+    b"SQLite format 3\x00", b"wOFF", b"wOF2", b"OTTO", b"RIFF",
+)
+
+
+def likely_binary(data: bytes, path: Path | None = None) -> bool:
+    if path is not None and path.suffix.lower() in BINARY_SUFFIXES:
         return True
-    sample = data[:8192]
-    controls = sum(byte < 32 and byte not in (9, 10, 12, 13) for byte in sample)
-    return controls / len(sample) > 0.10
+    if data.startswith(BINARY_SIGNATURES):
+        return True
+    # Check the entire file: a text-looking header may precede binary payloads.
+    # Do not guess legacy encodings; uncertain input must remain untouched.
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return True
+    return any(byte == 127 or (byte < 32 and byte not in (9, 10, 12, 13)) for byte in data)
 
 
 def files_under(root: Path):
@@ -166,7 +191,7 @@ def main() -> int:
         for path in paths:
             try:
                 data = path.read_bytes()
-                if likely_binary(data):
+                if likely_binary(data, path):
                     skipped_binary += 1
                     continue
                 if b"\r" not in data:
@@ -185,7 +210,7 @@ def main() -> int:
 
     print(
         f"{label.capitalize()} {changed} file(s); "
-        f"skipped {skipped_binary} likely binary file(s); "
+        f"skipped {skipped_binary} binary or unsupported-encoding file(s); "
         f"errors {errors}."
     )
     return 2 if errors else int(args.mode == "check" and changed > 0)
