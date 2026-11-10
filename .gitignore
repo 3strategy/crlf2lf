@@ -1,0 +1,27 @@
+# Python bytecode and tool caches (at any depth)
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Python environments
+.venv/
+venv/
+
+# Generated coverage reports
+.coverage
+.coverage.*
+htmlcov/
+/coverage.xml
+
+# Local secrets; keep a shareable example when needed
+.env
+.env.*
+!.env.example
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
